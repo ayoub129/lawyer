@@ -1,48 +1,64 @@
 import { MongoClient, Db } from 'mongodb'
 
 const uri = process.env.MONGODB_URI
-const options = {}
 
-let client: MongoClient
-let clientPromise: Promise<MongoClient> | null = null
-
-function initializeClient() {
-  if (!uri) {
-    throw new Error('MONGODB_URI environment variable is not set')
-  }
-
-  if (process.env.NODE_ENV === 'development') {
-    // In development mode, use a global variable so that the value
-    // is preserved across module reloads caused by HMR (Hot Module Replacement).
-    let globalWithMongo = global as typeof globalThis & {
-      _mongoClientPromise?: Promise<MongoClient>
-    }
-
-    if (!globalWithMongo._mongoClientPromise) {
-      client = new MongoClient(uri, options)
-      globalWithMongo._mongoClientPromise = client.connect()
-    }
-    clientPromise = globalWithMongo._mongoClientPromise
-  } else {
-    // In production mode, it's best to not use a global variable.
-    client = new MongoClient(uri, options)
-    clientPromise = client.connect()
-  }
+// Use a global variable pattern for both dev and production
+// This is important for serverless environments like Vercel
+// where we want to reuse connections across function invocations
+declare global {
+  var _mongoClientPromise: Promise<MongoClient> | undefined
 }
 
-export async function getDb(): Promise<Db> {
+function getClientPromise(): Promise<MongoClient> {
   if (!uri) {
     throw new Error('MONGODB_URI environment variable is not set. Please configure it in your Vercel environment variables.')
   }
 
-  if (!clientPromise) {
-    initializeClient()
+  // Check if we already have a connection promise cached
+  if (global._mongoClientPromise) {
+    return global._mongoClientPromise
   }
 
-  if (!clientPromise) {
-    throw new Error('Failed to initialize database connection')
-  }
+  // Create new client with minimal options
+  // MongoDB Atlas connection strings already include all necessary SSL/TLS settings
+  const client = new MongoClient(uri, {
+    // Minimal options - let MongoDB handle SSL/TLS from connection string
+    maxPoolSize: 10,
+    serverSelectionTimeoutMS: 10000,
+    socketTimeoutMS: 45000,
+  })
 
-  const client = await clientPromise
-  return client.db('legal_excellence')
+  // Cache the connection promise
+  global._mongoClientPromise = client.connect()
+  
+  return global._mongoClientPromise
+}
+
+export async function getDb(): Promise<Db> {
+  try {
+    const clientPromise = getClientPromise()
+    const client = await clientPromise
+    
+    // Test the connection
+    await client.db('admin').command({ ping: 1 })
+    
+    return client.db('legal_excellence')
+  } catch (error) {
+    console.error('MongoDB connection error:', error)
+    
+    // Reset the promise on error to allow retry on next call
+    if (global._mongoClientPromise) {
+      global._mongoClientPromise = undefined
+    }
+    
+    // Provide more helpful error message
+    if (error instanceof Error) {
+      if (error.message.includes('SSL') || error.message.includes('TLS') || error.message.includes('tlsv1')) {
+        throw new Error('SSL/TLS connection error. Please verify your MongoDB Atlas connection string and network access settings.')
+      }
+      throw error
+    }
+    
+    throw new Error('Failed to connect to MongoDB. Please check your connection string and try again.')
+  }
 }
