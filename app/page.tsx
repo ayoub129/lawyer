@@ -315,7 +315,7 @@ My practice is built on strong advocacy, strategic thinking, and personal attent
             <ScrollReveal>
               <div className="text-center mb-16">
                 <h2 className="font-heading playfair-display text-4xl md:text-5xl mb-4 font-bold text-text-primary">
-                  Why Choose  <span className="text-[#D4AF37]">Us</span>
+                  Why Choose  <span className="text-[#D4AF37]">Me</span>
                 </h2>
                 <p className="text-text-secondary max-w-2xl mx-auto">
                   Experience the difference of working with a firm that truly understands your needs
